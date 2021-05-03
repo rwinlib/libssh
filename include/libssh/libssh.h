@@ -21,6 +21,8 @@
 #ifndef _LIBSSH_H
 #define _LIBSSH_H
 
+#include <libssh/libssh_version.h>
+
 #if defined _WIN32 || defined __CYGWIN__
   #ifdef LIBSSH_STATIC
     #define LIBSSH_API
@@ -70,23 +72,6 @@
 
 #define SSH_STRINGIFY(s) SSH_TOSTRING(s)
 #define SSH_TOSTRING(s) #s
-
-/* libssh version macros */
-#define SSH_VERSION_INT(a, b, c) ((a) << 16 | (b) << 8 | (c))
-#define SSH_VERSION_DOT(a, b, c) a ##.## b ##.## c
-#define SSH_VERSION(a, b, c) SSH_VERSION_DOT(a, b, c)
-
-/* libssh version */
-#define LIBSSH_VERSION_MAJOR  0
-#define LIBSSH_VERSION_MINOR  8
-#define LIBSSH_VERSION_MICRO  6
-
-#define LIBSSH_VERSION_INT SSH_VERSION_INT(LIBSSH_VERSION_MAJOR, \
-                                           LIBSSH_VERSION_MINOR, \
-                                           LIBSSH_VERSION_MICRO)
-#define LIBSSH_VERSION     SSH_VERSION(LIBSSH_VERSION_MAJOR, \
-                                       LIBSSH_VERSION_MINOR, \
-                                       LIBSSH_VERSION_MICRO)
 
 /* GCC have printf type attribute check.  */
 #ifdef __GNUC__
@@ -168,13 +153,13 @@ enum ssh_auth_e {
 };
 
 /* auth flags */
-#define SSH_AUTH_METHOD_UNKNOWN 0
-#define SSH_AUTH_METHOD_NONE 0x0001
-#define SSH_AUTH_METHOD_PASSWORD 0x0002
-#define SSH_AUTH_METHOD_PUBLICKEY 0x0004
-#define SSH_AUTH_METHOD_HOSTBASED 0x0008
-#define SSH_AUTH_METHOD_INTERACTIVE 0x0010
-#define SSH_AUTH_METHOD_GSSAPI_MIC 0x0020
+#define SSH_AUTH_METHOD_UNKNOWN     0x0000u
+#define SSH_AUTH_METHOD_NONE        0x0001u
+#define SSH_AUTH_METHOD_PASSWORD    0x0002u
+#define SSH_AUTH_METHOD_PUBLICKEY   0x0004u
+#define SSH_AUTH_METHOD_HOSTBASED   0x0008u
+#define SSH_AUTH_METHOD_INTERACTIVE 0x0010u
+#define SSH_AUTH_METHOD_GSSAPI_MIC  0x0020u
 
 /* messages */
 enum ssh_requests_e {
@@ -293,10 +278,17 @@ enum ssh_keytypes_e{
   SSH_KEYTYPE_DSS=1,
   SSH_KEYTYPE_RSA,
   SSH_KEYTYPE_RSA1,
-  SSH_KEYTYPE_ECDSA,
+  SSH_KEYTYPE_ECDSA, /* deprecated */
   SSH_KEYTYPE_ED25519,
   SSH_KEYTYPE_DSS_CERT01,
-  SSH_KEYTYPE_RSA_CERT01
+  SSH_KEYTYPE_RSA_CERT01,
+  SSH_KEYTYPE_ECDSA_P256,
+  SSH_KEYTYPE_ECDSA_P384,
+  SSH_KEYTYPE_ECDSA_P521,
+  SSH_KEYTYPE_ECDSA_P256_CERT01,
+  SSH_KEYTYPE_ECDSA_P384_CERT01,
+  SSH_KEYTYPE_ECDSA_P521_CERT01,
+  SSH_KEYTYPE_ED25519_CERT01,
 };
 
 enum ssh_keycmp_e {
@@ -405,6 +397,9 @@ enum ssh_options_e {
   SSH_OPTIONS_GLOBAL_KNOWNHOSTS,
   SSH_OPTIONS_NODELAY,
   SSH_OPTIONS_PUBLICKEY_ACCEPTED_TYPES,
+  SSH_OPTIONS_PROCESS_CONFIG,
+  SSH_OPTIONS_REKEY_DATA,
+  SSH_OPTIONS_REKEY_TIME,
 };
 
 enum {
@@ -431,6 +426,7 @@ enum ssh_scp_request_types {
 enum ssh_connector_flags_e {
     /** Only the standard stream of the channel */
     SSH_CONNECTOR_STDOUT = 1,
+    SSH_CONNECTOR_STDINOUT = 1,
     /** Only the exception stream of the channel */
     SSH_CONNECTOR_STDERR = 2,
     /** Merge both standard and exception streams */
@@ -451,6 +447,8 @@ LIBSSH_API ssh_channel ssh_channel_new(ssh_session session);
 LIBSSH_API int ssh_channel_open_auth_agent(ssh_channel channel);
 LIBSSH_API int ssh_channel_open_forward(ssh_channel channel, const char *remotehost,
     int remoteport, const char *sourcehost, int localport);
+LIBSSH_API int ssh_channel_open_forward_unix(ssh_channel channel, const char *remotepath,
+    const char *sourcehost, int localport);
 LIBSSH_API int ssh_channel_open_session(ssh_channel channel);
 LIBSSH_API int ssh_channel_open_x11(ssh_channel channel, const char *orig_addr, int orig_port);
 LIBSSH_API int ssh_channel_poll(ssh_channel channel, int is_stderr);
@@ -543,6 +541,11 @@ SSH_DEPRECATED LIBSSH_API ssh_channel ssh_forward_accept(ssh_session session, in
 SSH_DEPRECATED LIBSSH_API int ssh_forward_cancel(ssh_session session, const char *address, int port);
 SSH_DEPRECATED LIBSSH_API int ssh_forward_listen(ssh_session session, const char *address, int port, int *bound_port);
 SSH_DEPRECATED LIBSSH_API int ssh_get_publickey(ssh_session session, ssh_key *key);
+SSH_DEPRECATED LIBSSH_API int ssh_write_knownhost(ssh_session session);
+SSH_DEPRECATED LIBSSH_API char *ssh_dump_knownhost(ssh_session session);
+SSH_DEPRECATED LIBSSH_API int ssh_is_server_known(ssh_session session);
+SSH_DEPRECATED LIBSSH_API void ssh_print_hexa(const char *descr, const unsigned char *what, size_t len);
+
 
 
 LIBSSH_API int ssh_get_random(void *where,int len,int strong);
@@ -552,7 +555,6 @@ LIBSSH_API int ssh_get_poll_flags(ssh_session session);
 LIBSSH_API int ssh_init(void);
 LIBSSH_API int ssh_is_blocking(ssh_session session);
 LIBSSH_API int ssh_is_connected(ssh_session session);
-LIBSSH_API int ssh_is_server_known(ssh_session session);
 
 /* KNOWN HOSTS */
 LIBSSH_API void ssh_knownhosts_entry_free(struct ssh_knownhosts_entry *entry);
@@ -572,9 +574,8 @@ LIBSSH_API int ssh_session_export_known_hosts_entry(ssh_session session,
                                                     char **pentry_string);
 LIBSSH_API int ssh_session_update_known_hosts(ssh_session session);
 
-LIBSSH_API enum ssh_known_hosts_e
-ssh_session_get_known_hosts_entry(ssh_session session,
-                                  struct ssh_knownhosts_entry **pentry);
+LIBSSH_API enum ssh_known_hosts_e ssh_session_get_known_hosts_entry(ssh_session session,
+        struct ssh_knownhosts_entry **pentry);
 LIBSSH_API enum ssh_known_hosts_e ssh_session_is_known_server(ssh_session session);
 
 /* LOGGING */
@@ -592,7 +593,10 @@ SSH_DEPRECATED LIBSSH_API void ssh_log(ssh_session session,
                                        const char *format, ...) PRINTF_ATTRIBUTE(3, 4);
 
 LIBSSH_API ssh_channel ssh_message_channel_request_open_reply_accept(ssh_message msg);
+LIBSSH_API int ssh_message_channel_request_open_reply_accept_channel(ssh_message msg, ssh_channel chan);
 LIBSSH_API int ssh_message_channel_request_reply_success(ssh_message msg);
+#define SSH_MESSAGE_FREE(x) \
+    do { if ((x) != NULL) { ssh_message_free(x); (x) = NULL; } } while(0)
 LIBSSH_API void ssh_message_free(ssh_message msg);
 LIBSSH_API ssh_message ssh_message_get(ssh_session session);
 LIBSSH_API int ssh_message_subtype(ssh_message msg);
@@ -614,7 +618,13 @@ LIBSSH_API ssh_pcap_file ssh_pcap_file_new(void);
 LIBSSH_API int ssh_pcap_file_open(ssh_pcap_file pcap, const char *filename);
 
 /**
- * @brief SSH authentication callback.
+ * @addtogroup libssh_auth
+ *
+ * @{
+ */
+
+/**
+ * @brief SSH authentication callback for password and publickey auth.
  *
  * @param prompt        Prompt to be displayed.
  * @param buf           Buffer to save the password. You should null-terminate it.
@@ -628,6 +638,8 @@ LIBSSH_API int ssh_pcap_file_open(ssh_pcap_file pcap, const char *filename);
  */
 typedef int (*ssh_auth_callback) (const char *prompt, char *buf, size_t len,
     int echo, int verify, void *userdata);
+
+/** @} */
 
 LIBSSH_API ssh_key ssh_key_new(void);
 #define SSH_KEY_FREE(x) \
@@ -693,7 +705,6 @@ LIBSSH_API char *ssh_get_fingerprint_hash(enum ssh_publickey_hash_type type,
                                           unsigned char *hash,
                                           size_t len);
 LIBSSH_API void ssh_print_hash(enum ssh_publickey_hash_type type, unsigned char *hash, size_t len);
-LIBSSH_API void ssh_print_hexa(const char *descr, const unsigned char *what, size_t len);
 LIBSSH_API int ssh_send_ignore (ssh_session session, const char *data);
 LIBSSH_API int ssh_send_debug (ssh_session session, const char *message, int always_display);
 LIBSSH_API void ssh_gssapi_set_creds(ssh_session session, const ssh_gssapi_creds creds);
@@ -760,8 +771,6 @@ LIBSSH_API int ssh_userauth_kbdint_setanswer(ssh_session session, unsigned int i
     const char *answer);
 LIBSSH_API int ssh_userauth_gssapi(ssh_session session);
 LIBSSH_API const char *ssh_version(int req_version);
-LIBSSH_API int ssh_write_knownhost(ssh_session session);
-LIBSSH_API char *ssh_dump_knownhost(ssh_session session);
 
 LIBSSH_API void ssh_string_burn(ssh_string str);
 LIBSSH_API ssh_string ssh_string_copy(ssh_string str);
